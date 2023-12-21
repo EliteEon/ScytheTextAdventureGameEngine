@@ -1,0 +1,921 @@
+//I created this engine. Please leave my name in the credits. Otherwise, feel free to use this code however you like. - Eli, AKA EliteEon
+
+// {--> Settings variables <--}
+var textSpeed = 1;
+var pauses = true;
+var helptext = true;
+var cautionText = true;
+var helpText = true;
+
+// {--> Dev variables (keep false unless in testing) <--}
+var devmode = false;
+var debugText = false;
+
+// {--> The following are variables on the characters stats and inventory <--}
+var currentHealth = 0;
+var maxHealth = 0;
+var charisma = 0;
+var dexterity = 0;
+var strength = 0;
+var magicPoints = 0;
+var lvl = 0;
+
+var className = null;
+
+var currentGold = 0;
+var currentWeapon = null;
+var currentArmor = null;
+var currentRing = null;
+var currentLefthand = null;
+var currentInventory = [];
+
+var location = 0;
+var currentRoom = 0;
+var previousRoom = 0;
+
+// {--> Following are values determinening world features, such as rooms, cutscenes, and others. <--}
+//First part is items (first 2 are number of, past is memory adress, besides gold, which is just amount with a g at the end), second part is monsters (0 is none, rest is memory adresses.)
+var begginersValleyRooms = [
+    null,
+    null,
+    ["5g",2,0],
+    [null,0,1],
+];
+// 1st number is north, 2nd is south, 3rd is east, 4th is west. A 1 means overworld.
+var begginersValleyExits = [
+    null,
+    null,
+    [3,0,0,0],
+    [0,2,0,0]
+];
+// For cutscenes, the number after the end is the length of the pause after.
+var begginersValleyEnterCutscenes = [
+    null,
+    null,
+    ["Lying against the wall, a skeleton lays slumped on the ground with a small pack in his hand.100"],
+    ["This is the end of this cave. Looks like theres no way out.100","In the middle of this chamber lies a small puddle of slime.100n"]
+];
+
+var begginersValleyOneTimeCutscenes = [
+    null,
+    [
+    "   _____            _   _          10",
+    "  / ____|          | | | |         1",
+    " | (___   ___ _   _| |_| |__   ___ 1",
+    "  \\___ \\ / __| | | | __| '_ \\ / _ \\1",
+    "  ____) | (__| |_| | |_| | | |  __/1",
+    " |_____/ \\___|\\__, |\\__|_| |_|\\___|1",
+    "               __/ |               1",
+    "              |___/                1",
+    "\n(Engine)"
+    ],
+    ["You wake from a deep sleep.100","In a small hole far above you, you see the last vestiges of twilight100","slowly disapear from view, until only the moon is lighting your surroundings.100","As you look around, you see a cave walls with one exit to the north, seemingly leading further into the cave.100",]
+]
+
+// {--> Following arrays are data on items and monsters <--}
+
+// The letters are the items name. The first number is type (1 is weapon, 2 is lefthanded, 3 is armor, 4 is ring, 5 is consumable) The different types have additional parts.
+// For weapon types, the second is strength required to wield, third is charisma required to wield, fourth is dexterity required to wield, the fifth number is attack damage, and sixth is additional affect (0 is none, 1 is can be used to cast spells)
+// For lefthanded, second is casts light
+// For consumable, second is effect type (0 is none, 1 is health), third is how much
+var itemStatsList = [
+    null,
+    ["rustydagger",1,6,0,5,5,0],
+    ["trainingsword",1,4,0,3,1,0],
+    ["basicstaff",1,0,5,1,0,1],
+    ["torch",2,1],
+    ["smallhealthpotion",5,1,5],
+    ["crudesword",1,2,0,1,2]
+];
+// First number is max health, second is speed, third is strength, fourth is special (0 is none, 1 is has item "is inside quotes directly after", 2 is wielding item "is inside quotes directly after", 3 is can cast spells), all after are exrtra specials.
+var monsterStatsList = [
+    null, 
+    ["smallslime",5,0,2],
+    ["bat",2,2,1],
+];
+
+var monsterDescriptionsList = [
+    null,
+    "A small ball of slime. It doesn't seem to have a brain, but it attacks anything it senses regardless.",
+    "A tiny furry mammal. Usually they aren't aggressive, unless you interupt their sleep. Or if a vampire is commanding them.",
+];
+// *Note: async means that the function can wait, so functions that need accept user input or pause start with async.
+
+// {--> Basic start functions that set up the game, before the player can do anything besides change basic settings (AKA, do not mess with unless you really know what your doing)<--}
+async function start() {
+    await startTitleScreen();
+    await beginPassiveActionable();
+    //await betabeginOverworldTravel()
+    if(debugText) println("Error has occured, please press run again.");
+    // The reason theres an error here is that there should be no point where the beginPassiveActionable loop is broken out of, so if this is displayed, you put a break; in the wrong place.
+} 
+
+async function startTitleScreen() {
+    println("\n");
+    await runCutscene("onetime1")
+    await runSleep(0.2);
+    runHelpText();
+    while (true) {
+        println("\nSelect either load, settings, help, or start.");
+        let select = await readLineAsync("");
+        select = select.toLowerCase();
+        if (select == "start") {
+            helpText = false;
+            await startIntro();
+            break;
+        } else if (select == "load") {
+            helpText = false;
+            println("load is unavailable at the moment, please try again later.");
+        } else if (select == "settings") {
+            helpText = false;
+            await openSettings();
+        } else if (select == "help") {
+            helpText = false;
+            println("\nYour options are:\nstart\nload\noptions\nType one in and press enter to select it.\nAdditionally, you may type 'back' or 'exit' to exit the current menu.");
+        } else if (select == "rundevmode"){
+            helpText = false;
+            debugText = true;
+            pauses = false;
+            cautionText = false;
+            devmode = true;
+            println("Dev mode activated.");
+        } else println("Invalid command.");
+    }
+}
+
+async function startIntro() {
+    while (true) {
+        println("\nChoose your class: Mage, Paladin, or Rogue");
+        let select = await readLineAsync("");
+        select = select.toLowerCase();
+        if (select == "mage") {
+            println("\nMage: A frail but powerful Wizard who relies heavily on magic.\n Are you sure you want to select this class? (y/n)");
+            println("\nUnfortunately the Mage class is currently unavailable, as magic is not currently implemented. Please pick a different class.");
+            
+            await runSleep(1);
+            /*let select = await readLineAsync("");
+            select = select.toLowerCase();
+            if (select == "y" || select == "yes") {
+                currentHealth = 8;
+                maxHealth = 8;
+                charisma = 6;
+                dexterity = 2;
+                strength = 1;
+                magicPoints = 4;
+                currentInventory.push("013");
+                break;
+            }*/
+        } else if (select == "paladin") {
+            println(
+                "\nPaladin: A strong knight who wields swords and shields and has some magic.\n Are you sure you want to select this class? (y/n)"
+            );
+            let select = await readLineAsync("");
+            select = select.toLowerCase();
+            if (select == "y" || select == "yes") {
+                currentHealth = 13;
+                maxHealth = 13;
+                charisma = 1;
+                dexterity = 3;
+                strength = 6;
+                magicPoints = 0;
+                currentInventory.push("012");
+                break;
+            }
+        } else if (select == "rogue") {
+            println(
+                "\nRogue: A sneaky assasin who has high-damage attacks and excels at dodging attacks, along with having distruptive magic.\n Are you sure you want to select this class? (y/n)"
+            );
+            let select = await readLineAsync("");
+            select = select.toLowerCase();
+            if (select == "y" || select == "yes") {
+                currentHealth = 10;
+                maxHealth = 10;
+                charisma = 1;
+                dexterity = 6;
+                strength = 3;
+                magicPoints = 0;
+                currentInventory.push("011");
+                break;
+            }
+        } else {
+            println("Invalid command.");
+        }
+    }
+    currentInventory.push("014");
+    currentGold = 10;
+    lvl = 1;
+    if(devmode){
+        currentGold = 999;
+        currentHealth = 999;
+        maxHealth = 999;
+        charisma = 999;
+        dexterity = 999;
+        strength = 999;
+        magicPoints = 999;
+    }
+    location = "firstCave";
+    currentRoom = 2;
+    println(
+        "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+    );
+    await runCutscene("onetime2");
+    await runEnterRoom(null);
+}
+
+// {--> Functions that open up menus like settings, inventory, and character <--}
+
+async function openSettings() {
+    print(
+        "\n\nOptions\nTextspeed: " +
+            textSpeed +
+            "\nPauses: " +
+            pauses +
+            "\nHelptext: " +
+            helptext + 
+            "\nCautiontext:" + 
+            cautionText
+    );
+    if (location != null) {
+        print("save\n");
+    } else {
+        print("\n");
+    }
+    while (true) {
+        println("");
+        println("What would you like to change?");
+        let select = await readLineAsync("");
+        select = select.toLowerCase();
+        if (select == "pauses") {
+            while (true) {
+                println("\nSelect true or false.");
+                let select = await readLineAsync("");
+                select = select.toLowerCase();
+                if (select == "true") {
+                    pauses = true;
+                    break;
+                } else if (select == "false") {
+                    pauses = false;
+                    break;
+                } else if (
+                    select == "back" ||
+                    select == "options" ||
+                    select == "exit" ||
+                    select == "close"
+                ) {
+                    break;
+                } else println("Invalid command.")
+            }
+        } else if (select == "textspeed") {
+            println("Select a factor of textspeed. (a number)");
+            let selection = await readFloatAsync("");
+            textSpeed = parseInt(selection);
+        } else if (select == "helptext") {
+            while (true) {
+                println("\nSelect true or false.");
+                let selection = await readLineAsync("");
+                selection = selection.toLowerCase();
+                if (selection == "true") {
+                    helptext = true;
+                    break;
+                } else if (selection == "false") {
+                    helptext = false;
+                    break;
+                } else if (
+                    selection == "back" ||
+                    selection == "options" ||
+                    selection == "exit" ||
+                    selection == "close" ||
+                    selection == ""
+                ) {
+                    break;
+                } else println("Invalid command.");
+            }
+        } else if (select == "cautiontext") {
+            while (true) {
+                println("\nSelect true or false.");
+                let selection = await readLineAsync("");
+                selection = selection.toLowerCase();
+                if (selection == "true") {
+                    cautionText = true;
+                    break;
+                } else if (selection == "false") {
+                    cautionText = false;
+                    break;
+                } else if (
+                    selection == "back" ||
+                    selection == "options" ||
+                    selection == "exit" ||
+                    selection == "close" ||
+                    selection == ""
+                ) {
+                    break;
+                } else println("Invalid command.");
+            }
+        } else if (select == "exit" || select == "back" || select == "close") {
+            break;
+        } else if (select == "save" && location != null) {
+            println(
+                "Unfortunately, save feature is unavaliable at the moment. Please check in later.\n"
+            );
+        } else println("Invalid command.");
+    }
+}
+
+async function openDevmodeOptions(){
+    while (true) {
+        print("\n\nAwaiting commands.\n");
+        let select = await readLineAsync("");
+        select = select.toLowerCase();
+        
+        if (select.split(" ")[0] == "teleport") await runTeleport(select.split(" ")[1],"devmode");
+        else if (select.split(" ")[0] == "startbattle") await runBattle(monsterStatsList[select.split(" ")[1], 0, "devmode"],0,select.split(" "[1], "Summoned from who knows where, "));
+        else if (select.split(" ")[0] == "runCutscene") await runCutscene(select.split(" ")[1]);
+        else if (select.split(" ")[0] == "useitem") await runUseItem(null, select.split(" ")[1], "devmode");
+        else if (select.split(" ")[0] == "give"){
+            if (select.split(" ")[3] == null) currentInventory.push("01" + select.split(" ")[2]);
+            else {
+                if (select.split(" ")[2] < 9) currentInventory.push("0" + select.split(" ")[2] + "" + select.split(" ")[3]);
+                else currentInventory.push(select.split(" ")[2] + "" + select.split(" ")[3]);
+            }
+        } else if (select == "exitdevmode") break;
+        else println("Invalid command.");
+    }
+}
+
+async function openMove() {
+    println("\nThere are exits to the:");
+    if(begginersValleyExits[currentRoom][0] != 0) println("North");
+    if(begginersValleyExits[currentRoom][1] != 0) println("South");
+    if(begginersValleyExits[currentRoom][2] != 0) println("East");
+    if(begginersValleyExits[currentRoom][3] != 0) println("West");
+    print("\n");
+    while(true){
+        println("Where would you like to move? (n/s/e/w)");
+        let select = await readLineAsync("");
+        select = select.toLowerCase();
+        if(select == "north" || select == "south" || select == "east" || select == "west" || select == "n" || select == "s" || select == "e" || select == "w"){
+            previousRoom = currentRoom;
+            if((select == "north" || select == "n") && begginersValleyExits[currentRoom][0] != 0) currentRoom = begginersValleyExits[currentRoom][0];
+            else if((select == "south" || select == "s") && begginersValleyExits[currentRoom][1] != 0) currentRoom = begginersValleyExits[currentRoom][1];
+            else if((select == "east" || select == "e") && begginersValleyExits[currentRoom][2] != 0) currentRoom = begginersValleyExits[currentRoom][2];
+            else if((select == "west" || select == "w") && begginersValleyExits[currentRoom][3] != 0) currentRoom = begginersValleyExits[currentRoom][3];
+            if(previousRoom == currentRoom) {
+                println("You attempt move, but bang into a wall.");
+                return;
+            }
+            var tempBool = await runEnterRoom(null);
+            if(! tempBool) {
+                currentRoom = previousRoom;
+                println("You retreat to the previous room.")
+                await runEnterRoom(null);
+            } else begginersValleyRooms[currentRoom][2] = 0;
+            break;
+        } else if(select == "cancel" || select == "no" || select == "exit" || select == "back") break;
+        else println("Invalid command.");
+    }
+}
+
+async function openInventory() {
+    var item = null;
+    await runOrganizeInventory();
+    println("\nYou look inside your inventory to see:");
+    println(currentGold + " Gold");
+    for (var i = 0; i < currentInventory.length; i++) {
+        if(parseInt(currentInventory[i].substring(0,2) > 9)){
+            println(currentInventory[i].substring(0,2) + " "  + itemStatsList[parseInt(currentInventory[i].substring(2))][0]);
+        } else {
+            println(currentInventory[i].substring(0,2).replace("0", "") + " "  + itemStatsList[parseInt(currentInventory[i].substring(2))][0]);
+        }
+    }
+    await runSleep(0.1);
+    while (true) {
+        print("\nYour inventory is open. What would you like to do?");
+        if (helptext) {
+            print(" (type help for options)\n");
+        } else {
+            print("\n");
+        }
+        let select = await readLineAsync("");
+        select = select.toLowerCase();
+        if (select == "help") {
+            println("\nYour options are:\nequip [itemname]\nuse [itemname]\nthrowaway [amount] [itemname]\ndescribe [itemname]\nequiped\nexit");
+        } else if (
+            select.split(" ")[0] == "use" ||
+            select.split(" ")[0] == "equip" ||
+            select.split(" ")[0] == "throwaway"
+        ) {
+            while (select.split(" ")[1] == null) {
+                println("\nWhat item do you wish to " + select + "?");
+                let selection = await readLineAsync("");
+                selection = selection.toLowerCase();
+                for (var i = 0; i < currentInventory.length; i++) {
+                    if (
+                        selection ==
+                        itemStatsList[currentInventory[i].substring(2)][0]
+                    ) {
+                        select = select + " " + selection;
+                        i = currentInventory.length + 10;
+                    }
+                }
+                if (
+                    selection == "back" ||
+                    selection == "exit" ||
+                    selection == "inventory" ||
+                    selection == "inv" ||
+                    selection == "close"
+                ) {
+                    select == null;
+                    break;
+                } else if (selection == "gold"){
+                    println("\nHow much Gold do you wish to throwaway?")
+                    let selection = await readLineAsync("");
+                    selection = selection.toLowerCase();
+                    if(! isNaN(parseInt(selection))){
+                        if(selection <= 0) println("\nNuh uh.") 
+                        else if(currentGold < parseInt(selection)){
+                            println("Not enough gold.");
+                        } else {
+                            currentGold -= parseInt(selection);
+                            println(selection + " Gold thrown away.");
+                        }
+                    }
+                    select = null;
+                    break;
+                }
+            }
+            if (select != null) {
+                var tempBool = false;
+                for(var i = 0; i < currentInventory.length; i++){
+                    if(itemStatsList[currentInventory[i].substring(2)][0] == select.split(" ")[1]){
+                        tempBool = true;
+                        item = i;
+                    } else if (itemStatsList[currentInventory[i].substring(2)][0] == select.split(" ")[2]){
+                        tempBool = true;
+                        item = i;
+                    }
+                }
+                if (select.split(" ")[0] == "use") {
+                    if(tempBool){
+                        if(cautionText){
+                            println("\nAre you sure you want to use " + select.split(" ")[1] + "?");
+                            let selection = await readLineAsync("");
+                            selection = selection.toLowerCase();
+                            if(selection == "y" || selection == "yes"){
+                                await runUseItem(select.split(" ")[1], item, 1);
+                            }
+                        } else {
+                        await runUseItem(select.split(" ")[1], item, 1);
+                        }
+                    } else {
+                        println("Item does not exist.");
+                    }
+                } else if (select.split(" ")[0] == "equip") {
+                    if(tempBool){
+                        var tempArray = itemStatsList[currentInventory[item].charAt(2)];
+                        if(tempArray[1] == 1){
+                            currentWeapon = tempArray;
+                            println(currentWeapon[0] + " equipped in weapons slot.");
+                        } else if(tempArray[1] == 2){
+                            currentLefthand = tempArray;
+                            println(currentLefthand[0] + " equipped in lefthand slot.");
+                        } else if(tempArray[1] == 3){
+                            currentArmor = tempArray;
+                            println(currentArmor[0] + " equipped in armor slot.");
+                        } else if(tempArray[1] == 4){
+                            currentRing = tempArray;
+                            println(currentRing[0] + " equipped in ring slot.");
+                        } else if(tempArray[1] == 5){
+                            println("Consumables cannot be equipped.");
+                        }
+                    } else {
+                        println("Item does not exist.");
+                    }
+                } else if (select.split(" ")[0] == "throwaway") {
+                    if(tempBool){
+                        if(cautionText){
+                            if (isNaN(select.split(" ")[1])){
+                                println("Are you sure you want to throwaway 1 " + select.split(" ")[1] + "?");
+                            } else {
+                                println("Are you sure you want to throwaway " + select.split(" ")[1] + " " + select.split(" ")[2] + "s?");
+                            }
+                            let selection = await readLineAsync("");
+                            selection = selection.toLowerCase();
+                            if(selection == "y" || selection == "yes"){
+                                if (isNaN(select.split(" ")[1])){
+                                    await runThrowawayItem(select.split(" ")[1], 1, item, ("1 " + select.split(" ")[1] + " thrown away."));
+                                } else {
+                                    await runThrowawayItem(select.split(" ")[2], select.split(" ")[1], item, (select.split(" ")[1] + " " + select.split(" ")[2] + "s thrown away."));
+                                }
+                            }
+                        } else {
+                            if (isNaN(select.split(" ")[1])){
+                                await runThrowawayItem(select.split(" ")[1], 1, item, "1 " + (select.split(" ")[1] + " thrown away."));
+                            } else {
+                                await runThrowawayItem(select.split(" ")[2], select.split(" ")[1], item, select.split(" ")[1] + (" " + select.split(" ")[2] + "s thrown away."));
+                            }
+                        }
+                    } else if(select.split(" ")[2] == "gold" && ! isNaN(parseInt(select.split(" ")[1]))){
+                        if (select.split(" ")[1] <= 0) println("\nNuh uh.");
+                        else if(currentGold < parseInt(select.split(" ")[1])){
+                            println("Not enough gold.");
+                        } else {
+                            currentGold -= parseInt(select.split(" ")[1]);
+                            println(select.split(" ")[1] + " Gold thrown away.");
+                        }
+                    } else if(select.split(" ")[1] == "gold"){
+                        println("\nHow much Gold do you wish to throwaway?")
+                        let selection = await readLineAsync("");
+                        selection = selection.toLowerCase();
+                        if(! isNaN(parseInt(selection))){
+                            if (selection < 0) println("\nNuh uh.");
+                            else if(currentGold < parseInt(selection)) println("Not enough gold.");
+                            else {
+                                currentGold -= parseInt(selection);
+                                println(selection + " Gold thrown away.");
+                            }
+                        }
+                    } else {
+                        println("Item does not exist.");
+                    }
+                } else {
+                    println("Active inventory error has occured.");
+                }
+                runOrganizeInventory();
+                println("\nYou look inside your inventory to see:");
+                println(currentGold + " Gold");
+                for (var i = 0; i < currentInventory.length; i++) {
+                    if(parseInt(currentInventory[i].substring(0,2) > 9)){
+                        println(currentInventory[i].substring(0,2) + " "  + itemStatsList[parseInt(currentInventory[i].substring(2))][0]);
+                    } else {
+                        println(currentInventory[i].substring(0,2).replace("0", "") + " "  + itemStatsList[parseInt(currentInventory[i].substring(2))][0]);
+                    }
+                }
+            }
+        } else if (select == "equipped" || select == "currentequip") {
+            if (currentWeapon != null) println("\n" + currentWeapon[0] + " equipped in weapons slot.");
+            else println("No weapon equipped in weapons slot.")
+            if (currentArmor != null) println("\n" + currentArmor[0] + " equipped in armor slot.");
+            else println("No armor equipped in armor slot.")
+            if (currentRing != null) println("\n" + currentRing[0] + " equipped in ring slot.");
+            else println("No ring equipped in ring slot.")
+            if (currentLefthand != null) println("\n" + currentLefthand[0] + " equipped in lefthand slot.");
+            else println("No item equipped in lefthand slot.")
+        } else if (select == "exit" || select == "back" || select == "close") {
+            break;
+        } else {
+            println("Invalid command.");
+        }
+    }
+}
+
+// {--> Functions that start action states, such as exploration in rooms, or battling <--}
+
+async function beginPassiveActionable() {
+    while (true) {
+        print("\n\nWhat would you like to do?");
+        if (helptext) {
+            print(" (type help for options)\n");
+        } else {
+            print("\n");
+        }
+        let select = await readLineAsync("");
+        select = select.toLowerCase();
+
+        if (select == "help") println("\nYour options are:\nSearch\nInventory (or inv)\nMove\nEngage\nSettings");
+        else if (select == "search") await runSearchRoom();
+        else if (select == "inv" || select == "inventory") await openInventory();
+        else if (select == "move") await openMove();
+        else if (select == "engage") println("Engage unavaliable.");
+        else if (select == "settings") await openSettings();
+        else if (select == "devmodeoptions" && devmode) await openDevmodeOptions();
+        else println("Invalid command.");
+    }
+}
+
+async function beginBattleActionable(monster, advantage, monsterVal, monsterNum, context){
+    var skedaddle = false;
+    var itemsFound = [null];
+    while (true){
+        while (true){
+            print("\nYou are battling with " + currentHealth + " health. What would you like to do?");
+            if (helptext){
+                print(" (type help for options)\n");
+            } else {
+                print("\n");
+            }
+            let select = await readLineAsync("");
+            select = select.toLowerCase();
+            if(select == "help"){
+                println("\nYour options are:\nAttack\nMagic\nInventory (or inv)\nIdentify\nSpecial\nRun");
+            } else if (select == "attack"){
+                if(monsterNum == 1){
+                    if(currentWeapon != null){
+                        monster[1] = monster[1] - currentWeapon[2];
+                        println(currentWeapon[2] + " damage dealt to " + monster[0] + " with your " + currentWeapon[0] + ".");
+                        break;
+                    } else {
+                        println("No equipped weapon. Do you wish to attack with your fists?");
+                        let select = await readLineAsync("");
+                        select = select.toLowerCase();
+                        if(select == "yes" || select == "y"){
+                            monster[1] --;
+                            println("1 damage dealt to " + monster[0]);
+                            break;
+                        }
+                    }
+                } else {
+                    println("Fighting against multiple monsters is currently unavaliable.");
+                }
+            } else if (select == "magic"){
+                println("Magic unavailable.");
+            } else if (select == "inventory" || select == "inv"){
+                await openInventory();
+            } else if (select == "identify"){
+                if(monsterNum != 1){
+                    println("\nThere are " + monsterNum + " monsters.");
+                    monster.foreach((element) => println("A " + monster[element][0] + "\n" + monsterDescriptionsList[monsterVal[element]]));
+                } else println(monsterDescriptionsList[monsterVal]);
+            } else if (select == "special"){
+                println("You don't have any special moves.");
+            } else if (select == "run" || select == "flee" || select == "depart" || select == "skedaddle" || select == "make myself scarce"){
+                println("You flee from the battle.");
+                return false;
+            } else println("Invalid command.")
+        }
+        if(monsterNum == 1){
+            if(monster[1] <= 0){
+                println(monster[0] + " was defeated!");
+                var foundItemsBool = false;
+                for(var i = 4; i < monster.length; i++){
+                    if(monster[i] == 1 || monster[i] == 2){
+                        itemsFound.push(monster[i + 1]);
+                        foundItemsBool = true;
+                        i++;
+                    }
+                }
+                if(foundItemsBool){
+                    itemsFound.remove(0);
+                    if(itemsFound.length != 0){
+                        println("\nItems found:");
+                        itemsFound.forEach((element) => println(itemStatsList[element][0]));
+                        itemsFound.forEach((element) => currentInventory.push("01" + element));
+                    }
+                }
+                return true;
+            } else {
+                println(monster[0] + " dealt " + monster[3] + " damage to you!");
+                currentHealth -= monster[3];
+            }
+        }
+        if(currentHealth <= 0) runDied();
+        //For some reason, this piece of code breaks the battling. Idk why. Don't uncomment it.
+        /*else {
+            for(var i = 0; i < monster.length --; i++){
+                if(monster[i] <= 0){
+                    println(monster[i][0] + " was defeated!");
+                    for(var j = 4; j < monster[i].length; i++) if(monster[i][j] == 1 || monster[i][j] == 2)itemsFound.push(parseInt(monster[i][j + 1]), i++);
+                    monster.remove(i);
+                } else {
+                    println(monster[i][0] + " dealt " + monster[i][3] + " damage to you!");
+                    currentHealth -= monster[i][3];
+                }
+            }
+        }*/
+    }
+}
+
+// {--> Various functions that don't require user input, but instead just preform some task. <--}
+
+async function runEnterRoom(alternateIntro) {
+    if(currentRoom == 10) {
+        await runCutscene("oneTime2");
+        await runCutscene("credits");
+        await runEndGame();
+    }
+    if(alternateIntro == null) await runCutscene(currentRoom);
+    else println(alternateIntro);
+    var tempBool = null;
+    if(begginersValleyRooms[currentRoom][2] != 0) tempBool = await runBattle(monsterStatsList[parseInt(begginersValleyRooms[currentRoom][2])],0,parseInt(begginersValleyRooms[currentRoom][2]), "As you enter the room, ");
+    if(tempBool == null) tempBool = true;
+    return tempBool;
+}
+
+async function runBattle(monster, advantage, monsterVal, context) {
+    var monsterNum;
+    if(Array.isArray(monster[0])){
+        if(monster.length > 1) monsterNum = 2;
+        if(monster.length > 2) monsterNum = 3;
+        if(monster.length > 3) monsterNum = 4;
+        if(monster.length > 4) monsterNum = 5;
+    } else monsterNum = 1;
+    if (context != null && Array.isArray(monster[0])) monster.foreach((enemy) => println("\n" + context + "a " + monsterStatsList[monster[enemy]][0] + " attacks!"));
+    else if (context != null) println("\n" + context + "a " + monster[0] + " attacks!")
+    else if (context == "devmode") println("");
+    else println("\nA " + monster[0].replace(/[0-9]/g, "") + " attacks!");
+    var winBool = await beginBattleActionable(monster, advantage, monsterVal,monsterNum, context);
+    return winBool;
+}
+
+async function runCutscene(cause){
+    if(cause == "credits"){
+        for(var i = 0; i < credits.length; i++){
+                    println(credits[i].replace(/[0-9.]/g, ''));
+                    await runSleep(parseFloat(credits[i].replace(/[^1-9]/g, ''))/100);
+            }
+    } else if(! isNaN(cause)){
+        if(begginersValleyEnterCutscenes.length > cause){
+            for(var i = 0; i < begginersValleyEnterCutscenes[cause].length; i++){
+                if(begginersValleyEnterCutscenes[cause][i].charAt(begginersValleyEnterCutscenes[cause][i].length - 1) == "m"){
+                    if(begginersValleyRooms[cause][2] != 0) {
+                        println(begginersValleyEnterCutscenes[cause][i].substring(0,begginersValleyEnterCutscenes[cause][i].length - 1).replace(/[0-9.]/g, ''));
+                        await runSleep(parseFloat(begginersValleyEnterCutscenes[cause][i].replace(/[^1-9.]/g, ''))/100);
+                    }
+                } else {
+                    println(begginersValleyEnterCutscenes[cause][i].replace(/[0-9.]/g, ''));
+                    await runSleep(parseFloat(begginersValleyEnterCutscenes[cause][i].replace(/[^1-9.]/g, ''))/100);
+                }
+            }
+        } else if (debugText) println("No cutscene created for room.");
+    } else if(cause.substring(0,cause.length - 1) == "onetime"){
+        var tempNum = cause.charAt(cause.length - 1);
+        if(begginersValleyOneTimeCutscenes[tempNum] != null){
+            for(var i = 0; i < begginersValleyOneTimeCutscenes[tempNum].length; i++){
+                println(begginersValleyOneTimeCutscenes[tempNum][i].replace(/[0-9.]/g, ''));
+                await runSleep(parseFloat(begginersValleyOneTimeCutscenes[tempNum][i].replace(/[^1-9]/g, ''))/100);
+            }
+        } else if (debugText) println("Error has occured, cutscene already played."); 
+    } else if (debugText) println("Cutscene cause unavailable");
+};
+
+async function runTeleport(where,context){
+    if(context == "devmode"){
+        currentRoom = where;
+        runEnterRoom(null);
+    } else {
+        println("No other teleport options created yet.");
+    }
+}
+
+async function runSearchRoom() {
+    if (begginersValleyRooms[currentRoom][1] != 0) {
+        if(await runBattle(monsterStatsList[parseInt(begginersValleyRooms[currentRoom][1])],-1,parseInt(begginersValleyRooms[currentRoom][1]),"As you attempt to search the room, ")){
+            begginersValleyRooms[currentRoom][1] = 0;
+            runSearchRoom();
+            return;
+        } else {
+            println("You flee to the previous room in an atempt to escape the " + monsterStatsList[parseInt(begginersValleyRooms[currentRoom][1])][0] + ".");
+            currentRoom = previousRoom;
+            return;
+        }
+    } else if (begginersValleyRooms[currentRoom][0] == null) println("You search the room, but find nothing.");
+    else {
+        var roomItems = [""];
+        var tempNum = 0;
+        var tempString = begginersValleyRooms[currentRoom][0];
+        for (var i = 0; i < tempString.length; i++) {
+            var tempChar = tempString.charAt(i);
+            if (tempChar == ",") {
+                tempNum++;
+                roomItems[tempNum] = "";
+            } else if (tempChar == " ") {
+            } else {
+                roomItems[tempNum] += tempChar;
+            }
+        }
+        println("\nAs you search the room, you find: ");
+        for (var i = 0; i < roomItems.length; i++) {
+            if (roomItems[i].charAt(roomItems[i].length - 1) == "g") {
+                println(roomItems[i].substr(0, roomItems[i].length - 1) + " gold pieces");
+                currentGold += parseInt(roomItems[i].substr(0, roomItems[i].length - 1));
+            } else {
+                if(roomItems[i].substr(0, 2) == "01"){
+                    println("1 " + itemStatsList[roomItems[i].substr(2, roomItems[i].length)][0]);
+                } else if(roomItems[i].charAt(0) == "0"){
+                    println(roomItems[i].charAt(1) + " " + itemStatsList[roomItems[i].substr(2, roomItems[i].length)][0] + "es");
+                } else{
+                    println(roomItems[i].substr(0, 1) + " " + itemStatsList[roomItems[i].substr(2, roomItems[i].length)][0] + "es");
+                }
+                currentInventory.push(roomItems[i]);
+            }
+        }
+        begginersValleyRooms[currentRoom][0] = null;
+    }
+}
+
+async function runHelpText() {
+    await runSleep(5);
+    if(helpText){
+        println("\nTo begin typing commands, first click on this text.");
+        await runSleep(1);
+        if(helpText) println("You can now type commands such as start, help, etc.");
+        await runSleep(1);
+        if(helpText) println("At any time, either the game will tell you what commands you can do, or you can type help as a command to find out what commands are possible.");
+        await runSleep(1);
+        if(helpText) println("Finally, once youve typed a command, simply press enter to send the command.");
+        await runSleep(1);
+        if(helpText) println("Try it now!");
+    }
+}
+
+function runUseItem(itemToUseName, currentInventoryIndex, context) {
+    if(context == "devmode"){
+        if(itemStatsList[currentInventoryIndex][2] == 1){
+            currentHealth += itemStatsList[currentInventoryIndex][3];
+            if(currentHealth > maxHealth) currentHealth = maxHealth;
+            println(itemStatsList[currentInventoryIndex][3] + " health has been healed. Your health is now at " + currentHealth + "/" + maxHealth + ".");
+            runAddRemoveFromInv("-1", currentInventoryIndex);
+        }
+    } else if (itemStatsList[currentInventory[currentInventoryIndex].charAt(2)][1] == 5){
+        if(itemStatsList[currentInventory[currentInventoryIndex].charAt(2)][2] == 1){
+            currentHealth += itemStatsList[currentInventory[currentInventoryIndex].charAt(2)][3];
+            if(currentHealth > maxHealth) currentHealth = maxHealth;
+            println(itemStatsList[currentInventoryIndex][3] + " health has been healed. Your health is now at " + currentHealth + "/" + maxHealth + ".");
+            runAddRemoveFromInv("-1", currentInventoryIndex);
+        }
+    } else println("Item is not consumable, cannot be used.");
+}
+
+function runThrowawayItem(itemToThrowawayName, amount, currentInventoryIndex, context){
+        if (amount < 0) println("\nIts not possible to throwaway negative items. Nice try though.");
+        else if (amount = 0)println("\nI don't know why you are trying to throwaway zero items, and I dont want to know. Just stop.");
+        else if (currentInventoryIndex != null){
+            if(parseInt(currentInventory[currentInventoryIndex].substring(0,2)) < amount){
+                println("Not enough " + itemStatsList[currentInventory[currentInventoryIndex].substring(2)][0] + "s.");
+            } else {
+                runAddRemoveFromInv("-1", currentInventoryIndex);
+                println(context);
+            }
+        } else if (itemToThrowawayName != null) {
+            for(var i = 0; i < currentInventory.length; i++){
+                if(itemStatsList[currentInventory[i].substring(2)][0] == itemToThrowawayName){
+                    currentInventoryIndex = i;
+                    i = currentInventory.length + 1;
+                }
+            }
+            if(parseInt(currentInventory[currentInventoryIndex].substring(0,2)) < amount){
+                println("Not enough " + itemStatsList[currentInventory[currentInventoryIndex].substring(2)][0] + "s.");
+            } else {
+                runAddRemoveFromInv("-1", currentInventoryIndex);
+                println(context);
+            }
+        } else {
+            println("Error: item to throwaway unidentified.")
+        }
+}
+
+function runOrganizeInventory(){
+    for(var i = 0; i < currentInventory.length; i++){
+        var tempInt = currentInventory[i].substring(2);
+        for(var j = i + 1; j < currentInventory.length; j++){
+            if(tempInt == currentInventory[j].substring(2) || tempInt == currentInventory[j].substring(3)){
+                if(currentInventory[j].charAt(0) == "-") var tempInt2 = parseInt(currentInventory[i].substring(0,2)) - Math.abs(currentInventory[j].substring(0,3));
+                else var tempInt2 = parseInt(currentInventory[i].substring(0, 2)) + parseInt(currentInventory[j].substring(0, 2))
+                if(tempInt2 <= 0) currentInventory.splice(i, 1);
+                else if (tempInt2 > 9) currentInventory[i] = tempInt2 +  "" + tempInt;
+                else if (tempInt2 < 10) currentInventory[i] =  "0" + tempInt2 +  "" + tempInt;
+                currentInventory.splice(j, 1);
+                j--;
+                i--;
+            }
+        }
+        if(parseFloat(currentInventory[i].substring(0,2)) <= 0){
+            currentInventory.splice(i, 1);
+        }
+    }
+}
+
+function runAddRemoveFromInv(amount, currentInventoryIndex){
+    if (Math.abs(amount) <= 9 && amount >= 0 ) currentInventory.push("0" + amount + "" + currentInventory[currentInventoryIndex].substring(2));
+    else if (Math.abs(amount) <= 9 && amount < 0) currentInventory.push("-0" + Math.abs(amount) + "" + currentInventory[currentInventoryIndex].substring(2));
+    else if (amount < 0) currentInventory.push("-" + Math.abs(amount) + "" + currentInventory[currentInventoryIndex].substring(2));
+    else currentInventory.push(amount + "" + currentInventory[currentInventoryIndex].substring(2));
+    
+    //Unused code, would be needed if runOrganizeInventory didn't just fix everything anyway
+    /*var tempStr = Math.abs(currentInventory[currentInventoryIndex].substring(0, 1));
+    if(tempStr == 1) currentInventory.splice(currentInventoryIndex, 1);
+    else {
+        if(tempStr + parseFloat(amount) <= 9) currentInventory[currentInventoryIndex] = "0" + tempStr + parseFloat(amount) + currentInventory[currentInventoryIndex].substring(2);
+        else if(tempStr + parseFloat(amount) > 9) currentInventory[currentInventoryIndex] = tempStr + parseFloat(amount) + currentInventory[currentInventoryIndex].substring(2);
+    }*/
+}
+
+function runSleep(ms) { 
+    if (pauses) return new Promise((resolve) => setTimeout(resolve, ms * 1000 /*/ textspeed*/));
+}
+
+async function runEndGame(){
+    println("-Your end of game text-");
+    while(true) await runSleep(1000000000000000000000000);
+}
+
+async function runDied(){
+    println("\n\nYou died. :P");
+    while(true) await runSleep(1000000000000000000000000);
+}
+
+var credits = [
+    "\n\n\n100",
+    "Engine Created by Eli (AKA, EliteEon)100",
+    "-your credits here-",
+    "10",
+];
